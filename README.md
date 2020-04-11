@@ -6,3 +6,6 @@ Rodriguez et al. 2020
 
 current preprint:
 https://www.biorxiv.org/content/10.1101/845628v2.full
+
+todo:
+document and annotate all code
