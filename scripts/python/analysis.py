@@ -43,7 +43,7 @@ def get_speed_distribution(tracks, fps):
     for i in tracks['IDENTITIES']:
         d_pos = np.sqrt(np.square(np.diff(tracks[str(i)]['SPINE'][:, 3, :], axis=0)).sum(axis=1))
         frame_idx = tracks[str(i)]['FRAME_IDX']
-        speed = savgol_filter(d_pos / np.diff(frame_idx), int(fps) if fps % 2 != 0 else int(fps + 1), 1) * fps
+        speed = savgol_filter(d_pos / np.diff(frame_idx), int(fps) if fps % 2 != 0 else int(fps + 1), 1) * fps # smooth individual speed to compensate tracking noise (1 second)
         speed_distribution.append(speed)
     speed_distribution = np.concatenate(speed_distribution)
     return speed_distribution
@@ -121,6 +121,11 @@ def threshold_speed(tracks, q, fps, plot=False, dom_id=None, figsize=(30, 5), xl
 
     '''
 
+    if xlim is not None: # subset tracks for visualization
+        pooled = tracks_to_pooled(tracks)
+        mask = (pooled['FRAME_IDX'] >= xlim[0]) & (pooled['FRAME_IDX'] <= xlim[1])
+        pooled = {key: pooled[key][mask] for key in pooled}
+        tracks = tracks_from_pooled(pooled)
     if plot:
         dom_color = tuple(v / 255 for v in (255, 109, 69))
         sub_color = tuple(v / 255 for v in (39, 170, 214))
@@ -130,12 +135,6 @@ def threshold_speed(tracks, q, fps, plot=False, dom_id=None, figsize=(30, 5), xl
         vals[:, 1] = np.linspace(209 / 255, 101 / 255, N)
         vals[:, 2] = np.linspace(237 / 255, 128 / 255, N)
         cmap = ListedColormap(vals)
-    if xlim is not None:
-        pooled = tracks_to_pooled(tracks)
-        mask = (pooled['FRAME_IDX'] >= xlim[0]) & (pooled['FRAME_IDX'] <= xlim[1])
-        pooled = {key: pooled[key][mask] for key in pooled}
-        tracks = tracks_from_pooled(pooled)
-    if plot:
         y1_bar_dom = [0.6] * 2
         y2_bar_dom = [0.9] * 2
         y1_bar = [0.1] * 2
@@ -225,7 +224,7 @@ def get_pairwise_distances(tracks, scale):
                 continue
             mask_ij = np.isin(tracks[str(i)]['FRAME_IDX'], tracks[str(j)]['FRAME_IDX'])
             mask_ji = np.isin(tracks[str(j)]['FRAME_IDX'], tracks[str(i)]['FRAME_IDX'])
-            d_pos = tracks[str(i)]['SPINE'][mask_ij, 1, :] - tracks[str(j)]['SPINE'][mask_ji, 1, :]
+            d_pos = tracks[str(i)]['SPINE'][mask_ij, 1, :] - tracks[str(j)]['SPINE'][mask_ji, 1, :] # head to head distance in frames with both individuals
             distance = np.sqrt(np.square(d_pos).sum(axis=1)).mean() / scale
             pairwise_distances[u, v] = distance
     return pairwise_distances
@@ -374,8 +373,8 @@ def get_event_response(tracks, intervals_above):
     sort_idx = np.argsort(intervals_trial[:, 0])
     intervals_identities = intervals_identities[sort_idx]
     intervals_trial = intervals_trial[sort_idx, :]
-    intervals_identities = intervals_identities[(intervals_trial > 5).any(axis=1)]
-    intervals_trial = intervals_trial[(intervals_trial > 5).any(axis=1), :]
+    intervals_identities = intervals_identities[(intervals_trial > 5).any(axis=1)] # remove first few frames because it would not be clear who is responder
+    intervals_trial = intervals_trial[(intervals_trial > 5).any(axis=1), :] # remove first few frames because it would not be clear who is responder
     intervals_identities = intervals_identities.tolist()
     intervals_trial = [tuple(interval) for interval in intervals_trial]
     events = []
@@ -396,9 +395,9 @@ def get_event_response(tracks, intervals_above):
             event_ids.append(responder_id)
             start = intervals_trial[0][0]
         events.append((event, event_ids))
-        events = [event for event in events if len(event[0]) > 1]
-    event_ids = np.array([event[1][:2] for event in events])
-    event_time = np.array([np.array(event[0])[:2] - event[0][0] for event in events])
+        events = [event for event in events if len(event[0]) > 1] # needs at least one responder to be counted as event
+    event_ids = np.array([event[1][:2] for event in events]) # we are only interested in dyadic initiator - first responder interactions
+    event_time = np.array([np.array(event[0])[:2] - event[0][0] for event in events]) # actual time to delay time
     return event_time, event_ids
 
 def get_social_influence(tracks, event_ids, dom_id=None, plot=False, plot_network=False, figsize=(5, 2.5), event_time=None, min_delay_time=0):
@@ -433,11 +432,11 @@ def get_social_influence(tracks, event_ids, dom_id=None, plot=False, plot_networ
     for idx, (initiator, responder) in enumerate(event_ids):
         social_influence[initiator, responder] += 1
         if event_time is not None and np.diff(event_time[idx]) < min_delay_time:
-            social_influence[responder, initiator] += 1
+            social_influence[responder, initiator] += 1 # if there is no clear responder, add undirected weight (we did not use this)
     if plot:
         plot_pairwise_matrix(social_influence, dom_id=dom_id)
-    G = nx.from_numpy_array(social_influence, create_using=nx.DiGraph)
-    centrality = np.array(list(nx.centrality.katz_centrality(G.reverse(), weight='weight').values()))
+    G = nx.from_numpy_array(social_influence, create_using=nx.DiGraph) # directed graph from social influence matrix
+    centrality = np.array(list(nx.centrality.katz_centrality(G.reverse(), weight='weight').values())) # out-edges centrality from the reversed graph
     if plot or plot_network:
         N = 50
         vals = np.ones((N * 4, 4))
@@ -461,7 +460,7 @@ def get_social_influence(tracks, event_ids, dom_id=None, plot=False, plot_networ
                                        vmin=vmin,
                                        vmax=vmax,
                                        cmap=cmap,
-                                       node_size=500, # 500
+                                       node_size=500,
                                        ax=ax)
         nodes.set_edgecolor('k')
         for edge in zip(np.repeat(np.arange(len(G)), len(G)),
@@ -588,7 +587,7 @@ def plot_network_randomization(avg_metric_sub, avg_metric_dom, metric_sub, metri
     right = np.argwhere(cdf >= 1 - alpha_level / 2).ravel().min()
     observed = metric_dom.mean() - metric_sub.mean()
     idx = np.argmin(np.abs(x - observed))
-    # calculate p value
+    # calculate p value ( * 2) because two-sided
     if np.abs(observed - x[left]) <= np.abs(observed - x[right]):
         p_value = 2 * cdf[idx + 1]
     else:
