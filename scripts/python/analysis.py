@@ -11,7 +11,7 @@ from matplotlib.colors import ListedColormap
 from matplotlib.collections import LineCollection
 from matplotlib import lines, colors
 
-from scipy.stats import norm
+from scipy.stats.kde import gaussian_kde
 from scipy.signal import savgol_filter
 
 from sklearn import preprocessing
@@ -413,3 +413,81 @@ def enumerate_identities(tracks, dom_id):
         tracks[str(idx)] = tracks.pop(str(i))
     tracks['IDENTITIES'] = np.arange(tracks['IDENTITIES'].size, dtype=np.int)
     return tracks, dom_id
+
+def plot_network_randomization(avg_metric_sub, avg_metric_dom, metric_sub, metric_dom, min_x_sub, max_x_sub, min_x_dom, max_x_dom, ylabel, xlim_hist, alpha_level=0.05, dom_color=None, sub_color=None):
+    if dom_color is None:
+        dom_color = tuple(v / 255 for v in (255, 109, 69))
+    if sub_color is None:
+        sub_color = tuple(v / 255 for v in (39, 170, 214))
+    mean_values_sub = []
+    for dist in np.concatenate([trial for trial in np.array(avg_metric_sub).reshape(6, 1000, -1)], axis=1):
+        dist = dist[np.isfinite(dist)]
+        mean_values_sub.append(dist.mean())
+    mean_values_dom = []
+    for dist in np.concatenate([trial for trial in np.array(avg_metric_dom).reshape(6, 1000, -1)], axis=1):
+        dist = dist[np.isfinite(dist)]
+        mean_values_dom.append(dist.mean())
+    mean_values_dom = np.array(mean_values_dom)
+    mean_values_sub = np.array(mean_values_sub)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4), gridspec_kw={'width_ratios': [0.5, 0.4]})
+    lc = LineCollection(np.transpose([np.repeat(1, mean_values_dom.size),
+                                      mean_values_dom,
+                                      np.repeat(4, mean_values_sub.size),
+                                      mean_values_sub]).reshape(-1, 2, 2),
+                        lw=0.5,
+                        alpha=0.1,
+                        color=(0.2, 0.2, 0.2), zorder=0,
+                        capstyle='butt')
+    axes[0].add_collection(lc)
+    axes[0].scatter(np.random.uniform(0.1, 0.9, mean_values_dom.size),
+                    mean_values_dom,
+                    s=5,
+                    facecolor=(0.5, 0.5, 0.5),
+                    edgecolor='k',
+                    lw=0.4)
+    axes[0].scatter(np.random.uniform(4.1, 4.9, mean_values_sub.size),
+                    mean_values_sub,
+                    s=5,
+                    facecolor=(0.5, 0.5, 0.5),
+                    edgecolor='k',
+                    lw=0.4)
+    axes[0].plot([1, 4], [metric_dom.mean(), metric_sub.mean()], '--', color='k', solid_capstyle='butt')
+    axes[0].scatter([0.5, 4.5], [metric_dom.mean(), metric_sub.mean()], s=20,
+                    marker='o', facecolor=np.array([dom_color, sub_color]), edgecolor='k')
+    axes[0].set_ylabel(ylabel, fontsize=14)
+    axes[0].set_xticks([0.5, 4.5])
+    axes[0].set_xticklabels([r'$Dom$', r'$Sub$'], fontsize=14)
+    differences = mean_values_dom - mean_values_sub
+    pdf = gaussian_kde(differences)
+    padding = (differences.max() - differences.min())
+    x = np.linspace(differences.min() - padding , differences.max() + padding, 1000)
+    cdf = np.cumsum(pdf(x)) * np.diff(x)[0]
+    left = np.argwhere(cdf <= alpha_level / 2).ravel().max()
+    right = np.argwhere(cdf >= 1 - alpha_level / 2).ravel().min()
+    observed = metric_dom.mean() - metric_sub.mean()
+    idx = np.argmin(np.abs(x - observed))
+    # calculate p value
+    if np.abs(observed - x[left]) <= np.abs(observed - x[right]):
+        p_value = 2 * cdf[idx + 1]
+    else:
+        p_value = 2 * (1 - cdf[idx])
+    axes[1].hist(mean_values_dom - mean_values_sub, bins=30, density=True,
+                 facecolor=(0, 0, 0, 0.1), edgecolor=(0, 0, 0, 0.4))
+    axes[1].fill_between(x[:left + 1], pdf(x[:left + 1]), facecolor='#7CB939', alpha=0.75)
+    axes[1].fill_between(x[left:right + 1], pdf(x[left:right + 1]), facecolor='k', alpha=0.25)
+    axes[1].fill_between(x[right:], pdf(x[right:]), facecolor='#7CB939', alpha=0.75)
+    axes[1].plot([x[left]] * 2, [0, pdf(x[left])], c='k', alpha=0.75, lw=0.5, solid_capstyle='butt')
+    axes[1].plot([x[right]] * 2, [0, pdf(x[right])], c='k', alpha=0.75, lw=0.5, solid_capstyle='butt')
+    axes[1].plot(x, pdf(x), alpha=1, lw=0.5, c='k', solid_capstyle='butt')
+    axes[1].axvline(observed, linestyle='--', color='k', solid_capstyle='butt', ymax=0.9)
+    axes[1].set_xlim(xlim_hist)
+    axes[1].set_xlabel('mean difference', fontsize=14)
+    axes[1].set_ylabel('density', fontsize=14)
+    for ax in axes.ravel():
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.yaxis.set_ticks_position('left')
+        ax.xaxis.set_ticks_position('bottom')
+    fig.tight_layout()
+    plt.show()
+    return 'p-value: {}'.format(p_value)
