@@ -120,6 +120,7 @@ def threshold_speed(tracks, q, fps, plot=False, dom_id=None, figsize=(30, 5), xl
         list of lists containing the per-individual intervals above the specified speed threshold
 
     '''
+
     if plot:
         dom_color = tuple(v / 255 for v in (255, 109, 69))
         sub_color = tuple(v / 255 for v in (39, 170, 214))
@@ -271,11 +272,54 @@ def get_above_thresh_matrix(tracks, intervals_above):
     return above_thresh_matrix
 
 def get_rel_time_above(tracks, intervals_above):
+    '''Calculates the proportion of time that individuals spent above the speed threshold.
+
+    Parameters
+    ----------
+    tracks : dict
+        A tracks dictionary
+    intervals_above : list
+        Returned from threshold_speed()
+
+    Returns
+    -------
+    np.ndarray
+        Proportion of time that individuals spent speeding
+    '''
+
     time_above = np.array([np.sum([end - start for start, end in intervals]) for i, intervals in enumerate(intervals_above)])
     time_trial = max([tracks[str(i)]['FRAME_IDX'].max() for i in tracks['IDENTITIES']])
     return time_above / time_trial
 
 def get_data(tracks, intervals_above, scale):
+    '''Calculate proportion of time that individuals spent speeding, their pairwise distance matrix and social speeding events.
+    From the speeding events, calculate delay times and corresponding ids and individual network centrality.
+
+    Parameters
+    ----------
+    tracks : dict
+        A tracks dictionary
+    intervals_above : list
+        Returned from threshold_speed()
+    scale : float
+        Pixel per meter ratio for conversion
+
+    Returns
+    -------
+    np.ndarray
+        The proportion of time spent speeding
+    np.ndarray
+        The pairwise distance matrix
+    NoneType
+        Should be replaced with visual connectivity matrix for further analysis
+    np.ndarray
+        Individual network centrality
+    np.ndarray
+        Event delay times
+    np.ndarray
+        Event ids
+    '''
+
     rel_time_above = get_rel_time_above(tracks, intervals_above)
     pairwise_distances = get_pairwise_distances(tracks, scale)
     event_time, event_ids = get_event_response(tracks, intervals_above)
@@ -283,6 +327,9 @@ def get_data(tracks, intervals_above, scale):
     return rel_time_above, pairwise_distances, None, centrality, event_time, event_ids
 
 def group_data(tracks, data, dom_id, min_delay_time=0):
+    '''Groups data (dom and sub) that was obtained with get_data(). Optionally filter events without clear initiator or responder (min_delay_time).
+    Returns data as tuples (dom and sub) according to input.'''
+
     rel_time_above_dom = data[0][tracks['IDENTITIES'] == dom_id]
     rel_time_above_sub = data[0][tracks['IDENTITIES'] != dom_id]
     pairwise_dist_dom = data[1].mean(axis=0)[tracks['IDENTITIES'] == dom_id]
@@ -305,6 +352,23 @@ def group_data(tracks, data, dom_id, min_delay_time=0):
            (event_ids_dom, event_ids_sub)
 
 def get_event_response(tracks, intervals_above):
+    '''Determines event initiators and responders, and delay times.
+
+    Parameters
+    ----------
+    tracks : dict
+        A tracks dictionary
+    intervals_above : list
+        Returned from threshold_speed()
+
+    Returns
+    -------
+    np.ndarray
+        Event delay times
+    np.ndarray
+        Event ids
+    '''
+
     intervals_trial = np.concatenate(intervals_above, axis=0)
     intervals_identities = np.concatenate([np.repeat(i, len(intervals)) for i, intervals in zip(tracks['IDENTITIES'], intervals_above)])
     sort_idx = np.argsort(intervals_trial[:, 0])
@@ -338,6 +402,33 @@ def get_event_response(tracks, intervals_above):
     return event_time, event_ids
 
 def get_social_influence(tracks, event_ids, dom_id=None, plot=False, plot_network=False, figsize=(5, 2.5), event_time=None, min_delay_time=0):
+    '''Calculates social influence as network (out-edges Katz) centrality. Optionally visualizes network and centrality.
+
+    Parameters
+    ----------
+    tracks : dict
+        A tracks dictionary
+    event_ids : np.ndarray
+        The event_ids
+    dom_id : int, optional
+        The id of the dominant individual for visualization. Defaults to None
+    plot : bool, optional
+        Visualize social influence matrix? Defaults to False
+    plot_network : bool, optional
+        Visualize network? Defaults to False
+    figsize : (int, int), optional
+        Figure size for network visualization. Defaults to (5. 2.5)
+    event_time : np.ndarray, optional
+        Corresponding event times (for event ids). Necessary when only counting events with a minimum delay time. Defaults to None
+    min_delay_time : float
+        Minimum delay time between initiator and responder to define them as clear initiator and responder. Defaults to 0
+
+    Returns
+    -------
+    np.ndarray
+        Network centrality for all individuals
+    '''
+
     social_influence = np.zeros((tracks['IDENTITIES'].size, tracks['IDENTITIES'].size))
     for idx, (initiator, responder) in enumerate(event_ids):
         social_influence[initiator, responder] += 1
@@ -408,13 +499,44 @@ def get_social_influence(tracks, event_ids, dom_id=None, plot=False, plot_networ
     return centrality
 
 def enumerate_identities(tracks, dom_id):
+    '''Sort (ascending) and relabel trajectory identities. Returns relabeled tracks and new id of dominant individual.'''
+
     dom_id = np.argwhere(tracks['IDENTITIES'] == dom_id).ravel()[0]
     for idx, i in enumerate(np.sort(tracks['IDENTITIES'])):
         tracks[str(idx)] = tracks.pop(str(i))
     tracks['IDENTITIES'] = np.arange(tracks['IDENTITIES'].size, dtype=np.int)
     return tracks, dom_id
 
-def plot_network_randomization(avg_metric_sub, avg_metric_dom, metric_sub, metric_dom, min_x_sub, max_x_sub, min_x_dom, max_x_dom, ylabel, xlim_hist, alpha_level=0.05, dom_color=None, sub_color=None):
+def plot_network_randomization(avg_metric_sub, avg_metric_dom, metric_sub, metric_dom, ylabel, xlim_hist, alpha_level=0.05, dom_color=None, sub_color=None):
+    '''Visualize network randomization test and calculate two-tailed p-value. Refer to the example notebook for network randomization.
+
+    Parameters
+    ----------
+    avg_metric_sub : np.ndarray
+        Contains the metric of sub obtained from network randomizations
+    avg_metric_dom : np.ndarray
+        Contains the metric of dom obtained from network randomizations
+    metric_sub : np.ndarray
+        Contains the observed metric of sub
+    metric_dom : np.ndarray
+        Contains the observed metric of dom
+    ylabel : string
+        Y axis label for the randomization plot
+    xlim_hist : (float, float)
+        X axis limits for the histogram.
+    alpha_level : float, optional
+        Significance level for test visualization in the range of [0, 1]. Defaults to 0.05
+    dom_color : (float, float, float), optional
+        RGB color for dom in the range of [0, 1]
+    sub_color : (float, float, float), optional
+        RGB color for sub in the range of [0, 1]
+
+    Returns
+    -------
+    string
+        A formatted p-value
+    '''
+
     if dom_color is None:
         dom_color = tuple(v / 255 for v in (255, 109, 69))
     if sub_color is None:
