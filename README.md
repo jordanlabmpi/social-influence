@@ -11,4 +11,4 @@ for Mask-RCNN training, inference and tracking, check out our other preprint:
 https://www.biorxiv.org/content/10.1101/2020.02.25.963926v1.full
 
 todo:
-document and annotate all code, add 2d visual field reconstruction
+document and annotate raycasting code

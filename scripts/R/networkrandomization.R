@@ -3,6 +3,10 @@ library(MASS)
 library(ggplot2)
 library(patchwork)
 
+# this script is an almost identical implementation of the python code, but much slower
+# the only difference is in the calculation of the p-value, the estimated distribution should be non-parametric pdf
+# for the paper, we used the python code and visualizations
+
 #### define functions that calculate ####
 
 # per trial difference of a metric between doms and subs (calculate_diff_per_trial)
@@ -28,7 +32,7 @@ calculate_diff_per_trial = function (social_parameters, n_trials, metric, interc
 # a two-sided p-value based on estimated distribution and observed estimate (calculate_p_value)
 
 calculate_p_value = function (observed, estimates) {
-  distribution = fitdistr(estimates$x, densfun = 'normal')
+  distribution = fitdistr(estimates$x, densfun = 'normal') # this should be non-parametric (pdf) instead, as implemented in pyhton code
   if (observed > distribution$estimate['mean']) {
     p_value = pnorm(observed, distribution$estimate['mean'], sd = distribution$estimate['sd'], lower.tail = FALSE)
   } else {
@@ -37,11 +41,11 @@ calculate_p_value = function (observed, estimates) {
   return(2 * p_value)
 }
 
-setwd('~/Documents/BurtoniLearningExp/')
+setwd('../../data/spreadsheets/')
 
 n_shuffles = 1000
 n_trials = 6
-metric = 'network_centrality' # avg_pairwise_distance, avg_angular_area, network_centrality (noise_frequency is not a 'network parameter' because only derived from one node's actions)
+metric = 'centrality' # pairwise_dist, aa_out, centrality (noise_frequency is not a 'network parameter' because only derived from one node's actions)
 
 social_parameters = read.csv('social_parameters.csv')
 
@@ -99,3 +103,4 @@ p1 | p2
 
 ## the p-value
 calculate_p_value(observed, estimates)
+
