@@ -9,15 +9,15 @@ https://www.biorxiv.org/content/10.1101/845628v2.full
 
 #### Contents
 
- - **data**
+- **data**
   - mask rcnn annotations and trainings dataset
   - spreadsheeets used for statistical analysis
   - raw tracks and revised (identified and corrected) tracks
   - raw visual field output
 
 
-- **figures**  
- - all figures of the manuscript  
+- **figures**
+  - all figures of the manuscript
 
 
 - **scripts**
